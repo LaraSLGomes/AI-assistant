@@ -19,7 +19,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 @app.get("/")
 def home():
-    return {"message": "RAG API com Pinecone rodando!"}
+    return {"message": "API rodando!"}
 
 @app.post("/uploads")
 def upload_file(file: UploadFile = File(...)):
@@ -44,7 +44,7 @@ def upload_file(file: UploadFile = File(...)):
         index_name=PINECONE_INDEX_NAME
     )
     
-    return {"message": f"Arquivo {file.filename} enviado e vetorizado no Pinecone com sucesso!"}
+    return {"message": f"Arquivo {file.filename} enviado e vetorizado com sucesso!"}
 
 @app.get("/retrieve")
 def retrieve_answer(query: str):
