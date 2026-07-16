@@ -72,8 +72,9 @@ const Home = () => {
           }
         ]);
 
-        // !! alterar para url local por enquanto
-        let url = `http://localhost:3000/AI-assistant/${encodeURIComponent(userInput)}`;
+        // usar variável de ambiente para a URL da API
+        const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+        let url = `${apiBaseUrl}/chat_stream/${encodeURIComponent(userInput)}`;
         if (checkpointId) {
           url += `?checkpoint_id=${encodeURIComponent(checkpointId)}`;
         }
