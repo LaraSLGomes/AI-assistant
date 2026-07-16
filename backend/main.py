@@ -10,7 +10,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from langchain_community.document_loaders import PyPDFLoader, TextLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_openai import OpenAIEmbeddings, ChatOpenAI
+from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
 from langchain.chains import RetrievalQA
 from langchain_pinecone import PineconeVectorStore
 
@@ -29,11 +29,16 @@ app.add_middleware(
     allow_credentials=True,
 )
 
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-if not OPENAI_API_KEY:
-    raise RuntimeError("OPENAI_API_KEY não configurada no backend")
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+if not GOOGLE_API_KEY:
+    raise RuntimeError("GOOGLE_API_KEY não configurada no backend")
+if GOOGLE_API_KEY.strip() == "seu_google_api_key_aqui":
+    raise RuntimeError("GOOGLE_API_KEY no backend está usando o placeholder. Substitua por uma chave válida.")
 
-embeddings = OpenAIEmbeddings()
+embeddings = GoogleGenerativeAIEmbeddings(
+    model="gemini-embedding-001",
+    google_api_key=GOOGLE_API_KEY,
+)
 
 PINECONE_INDEX_NAME = os.getenv("PINECONE_INDEX_NAME")
 if not PINECONE_INDEX_NAME:
@@ -85,7 +90,10 @@ def chat_stream(request: ChatRequest):
     retriever = vectorstore.as_retriever()
 
     qa_chain = RetrievalQA.from_chain_type(
-        llm=ChatOpenAI(model="gpt-3.5-turbo", temperature=0.2),
+        llm=ChatGoogleGenerativeAI(
+            model="gemini-1.5-flash",
+            google_api_key=GOOGLE_API_KEY,
+        ),
         chain_type="stuff",
         retriever=retriever
     )
@@ -113,7 +121,10 @@ def retrieve_answer(query: str):
     retriever = vectorstore.as_retriever()
 
     qa_chain = RetrievalQA.from_chain_type(
-        llm=ChatOpenAI(model="gpt-3.5-turbo"),
+        llm=ChatGoogleGenerativeAI(
+            model="gemini-1.5-flash",
+            google_api_key=GOOGLE_API_KEY,
+        ),
         chain_type="stuff",
         retriever=retriever
     )
