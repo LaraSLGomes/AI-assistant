@@ -3,7 +3,7 @@
 import Header from '@/components/Header';
 import InputBar from '@/components/InputBar';
 import MessageArea from '@/components/MessageArea';
-import React, { useState } from 'react';
+import React, { FormEvent, useState } from 'react';
 
 interface SearchInfo {
   stages: string[];
@@ -30,11 +30,11 @@ const Home = () => {
       type: 'message'
     }
   ]);
-  const [currentMessage, setCurrentMessage] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
-  const [checkpointId, setCheckpointId] = useState(null);
+  const [currentMessage, setCurrentMessage] = useState<string>("");
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [checkpointId, setCheckpointId] = useState<string | null>(null);
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (currentMessage.trim()) {
       // mensagem do usuário no chat
@@ -72,8 +72,8 @@ const Home = () => {
           }
         ]);
 
-        // criar url com checkpoint id se existir
-        let url = `https://perplexity-api.onrender.com/chat_stream/${encodeURIComponent(userInput)}`;
+        // !! alterar para url local por enquanto
+        let url = `http://localhost:3000/AI-assistant/${encodeURIComponent(userInput)}`;
         if (checkpointId) {
           url += `?checkpoint_id=${encodeURIComponent(checkpointId)}`;
         }
@@ -81,7 +81,7 @@ const Home = () => {
         // conectar ao endpoint sse usando eventsource
         const eventSource = new EventSource(url);
         let streamedContent = "";
-        let searchData = null;
+        let searchData: SearchInfo | null = null;
         let hasReceivedContent = false;
 
         // processar mensagens recebidas

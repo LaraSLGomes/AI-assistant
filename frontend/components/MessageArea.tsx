@@ -1,28 +1,162 @@
 import React from 'react';
 
-interface Message {
+type SearchInfo = {
+  stages: string[];
+  query: string;
+  urls?: string[];
+  error?: string;
+};
+
+type Message = {
   id: number;
   content: string;
   isUser: boolean;
   type: string;
   isLoading?: boolean;
-  searchInfo?: any;
-}
+  searchInfo?: SearchInfo;
+};
 
-interface Props {
-  messages: Message[];
-}
-
-export default function MessageArea({ messages }: Props) {
-  return (
-    <main className="flex-1 p-4 overflow-auto space-y-3 bg-white">
-      {messages.map((msg) => (
-        <div key={msg.id} className={msg.isUser ? 'text-right' : 'text-left'}>
-          <div className={`inline-block px-3 py-2 rounded ${msg.isUser ? 'bg-blue-100' : 'bg-gray-100'}`}>
-            {msg.isLoading ? '...' : msg.content}
-          </div>
+const PremiumTypingAnimation = () => {
+    return (
+        <div className="flex items-center">
+            <div className="flex items-center space-x-1.5">
+                <div className="w-1.5 h-1.5 bg-gray-400/70 rounded-full animate-pulse"
+                    style={{ animationDuration: "1s", animationDelay: "0ms" }}></div>
+                <div className="w-1.5 h-1.5 bg-gray-400/70 rounded-full animate-pulse"
+                    style={{ animationDuration: "1s", animationDelay: "300ms" }}></div>
+                <div className="w-1.5 h-1.5 bg-gray-400/70 rounded-full animate-pulse"
+                    style={{ animationDuration: "1s", animationDelay: "600ms" }}></div>
+            </div>
         </div>
-      ))}
-    </main>
-  );
-}
+    );
+};
+
+type SearchStagesProps = {
+  searchInfo?: SearchInfo;
+};
+
+const SearchStages = ({ searchInfo }: SearchStagesProps) => {
+    if (!searchInfo || !searchInfo.stages || searchInfo.stages.length === 0) return null;
+
+    return (
+        <div className="mb-3 mt-1 relative pl-4">
+            {/* processo de busca */}
+            <div className="flex flex-col space-y-4 text-sm text-gray-700">
+                {/* estágio de busca */}
+                {searchInfo.stages.includes('searching') && (
+                    <div className="relative">
+                        {/* ponto verde */}
+                        <div className="absolute -left-3 top-1 w-2.5 h-2.5 bg-teal-400 rounded-full z-10 shadow-sm"></div>
+
+                        {/* linha de conexão para leitura */}
+                        {searchInfo.stages.includes('reading') && (
+                            <div className="absolute -left-[7px] top-3 w-0.5 h-[calc(100%+1rem)] bg-gradient-to-b from-teal-300 to-teal-200"></div>
+                        )}
+
+                        <div className="flex flex-col">
+                            <span className="font-medium mb-2 ml-2">Searching the web</span>
+
+                            {/* consulta de busca em destaque */}
+                            <div className="flex flex-wrap gap-2 pl-2 mt-1">
+                                <div className="bg-gray-100 text-xs px-3 py-1.5 rounded border border-gray-200 inline-flex items-center">
+                                    <svg className="w-3 h-3 mr-1.5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                                    </svg>
+                                    {searchInfo.query}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* estágio de leitura */}
+                {searchInfo.stages.includes('reading') && (
+                    <div className="relative">
+                        {/* ponto verde */}
+                        <div className="absolute -left-3 top-1 w-2.5 h-2.5 bg-teal-400 rounded-full z-10 shadow-sm"></div>
+
+                        <div className="flex flex-col">
+                            <span className="font-medium mb-2 ml-2">Reading</span>
+
+                            {/* resultados da busca */}
+                            {searchInfo.urls && searchInfo.urls.length > 0 && (
+                                <div className="pl-2 space-y-1">
+                                    <div className="flex flex-wrap gap-2">
+                                        {searchInfo.urls.map((url, index) => (
+                                            <div key={index} className="bg-gray-100 text-xs px-3 py-1.5 rounded border border-gray-200 truncate max-w-[200px] transition-all duration-200 hover:bg-gray-50">
+                                                {typeof url === 'string' ? url : JSON.stringify(url).substring(0, 30)}
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
+
+                {/* estágio de redação */}
+                {searchInfo.stages.includes('writing') && (
+                    <div className="relative">
+                        {/* ponto verde com brilho sutil */}
+                        <div className="absolute -left-3 top-1 w-2.5 h-2.5 bg-teal-400 rounded-full z-10 shadow-sm"></div>
+                        <span className="font-medium pl-2">writing answer</span>
+                    </div>
+                )}
+
+                {/* mensagem de erro */}
+                {searchInfo.stages.includes('error') && (
+                    <div className="relative">
+                        {/* ponto vermelho sobre a linha vertical */}
+                        <div className="absolute -left-3 top-1 w-2.5 h-2.5 bg-red-400 rounded-full z-10 shadow-sm"></div>
+                        <span className="font-medium">Search error</span>
+                        <div className="pl-4 text-xs text-red-500 mt-1">
+                            {searchInfo.error || "An error occurred during search."}
+                        </div>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
+type MessageAreaProps = {
+  messages: Message[];
+};
+
+const MessageArea = ({ messages }: MessageAreaProps) => {
+    return (
+        <div className="flex-grow overflow-y-auto bg-[#FCFCF8] border-b border-gray-100" style={{ minHeight: 0 }}>
+            <div className="max-w-4xl mx-auto p-6">
+                {messages.map((message) => (
+                    <div key={message.id} className={`flex ${message.isUser ? 'justify-end' : 'justify-start'} mb-5`}>
+                        <div className="flex flex-col max-w-md">
+                            {/* exibição do status da busca acima da mensagem */}
+                            {!message.isUser && message.searchInfo && (
+                                <SearchStages searchInfo={message.searchInfo} />
+                            )}
+
+                            {/* conteúdo da mensagem */}
+                            <div
+                                className={`rounded-lg py-3 px-5 ${message.isUser
+                                    ? 'bg-gradient-to-br from-[#5E507F] to-[#4A3F71] text-white rounded-br-none shadow-md'
+                                    : 'bg-[#F3F3EE] text-gray-800 border border-gray-200 rounded-bl-none shadow-sm'
+                                    }`}
+                            >
+                                {message.isLoading ? (
+                                    <PremiumTypingAnimation />
+                                ) : (
+                                    message.content || (
+                                        // fallback quando o conteúdo estiver vazio e não estiver carregando
+                                        <span className="text-gray-400 text-xs italic">aguardando resposta...</span>
+                                    )
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+};
+
+export default MessageArea;
