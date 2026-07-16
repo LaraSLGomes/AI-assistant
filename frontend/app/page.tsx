@@ -53,9 +53,9 @@ const Home = () => {
       const userInput = currentMessage;
       setCurrentMessage(""); // limpar o campo de entrada imediatamente
 
+      let aiResponseId = newMessageId + 1;
       try {
         // criar espaço reservado para a resposta da ia
-        const aiResponseId = newMessageId + 1;
         setMessages(prev => [
           ...prev,
           {
@@ -74,157 +74,152 @@ const Home = () => {
 
         // usar variável de ambiente para a URL da API
         const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
-        let url = `${apiBaseUrl}/chat_stream/${encodeURIComponent(userInput)}`;
-        if (checkpointId) {
-          url += `?checkpoint_id=${encodeURIComponent(checkpointId)}`;
+        const response = await fetch(`${apiBaseUrl}/chat_stream`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ user_message: userInput, checkpoint_id: checkpointId }),
+        });
+
+        if (!response.ok || !response.body) {
+          throw new Error(`Servidor retornou status ${response.status}`);
         }
 
-        // conectar ao endpoint sse usando eventsource
-        const eventSource = new EventSource(url);
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
         let streamedContent = "";
+        let partial = "";
         let searchData: SearchInfo | null = null;
-        let hasReceivedContent = false;
 
-        // processar mensagens recebidas
-        eventSource.onmessage = (event) => {
-          try {
-            const data = JSON.parse(event.data);
+        while (true) {
+          const { value, done: readerDone } = await reader.read();
+          if (value) {
+            partial += decoder.decode(value, { stream: true });
+          }
 
-            if (data.type === 'checkpoint') {
-              // salvar o checkpoint id para requisições futuras
-              setCheckpointId(data.checkpoint_id);
-            }
-            else if (data.type === 'content') {
-              streamedContent += data.content;
-              hasReceivedContent = true;
+          const lines = partial.split("\n");
+          partial = lines.pop() ?? "";
 
-              // atualizar mensagem com o conteúdo acumulado
-              setMessages(prev =>
-                prev.map(msg =>
-                  msg.id === aiResponseId
-                    ? { ...msg, content: streamedContent, isLoading: false }
-                    : msg
-                )
-              );
-            }
-            else if (data.type === 'search_start') {
-              // criar info de busca com 'searching'
-              const newSearchInfo = {
-                stages: ['searching'],
-                query: data.query,
-                urls: []
-              };
-              searchData = newSearchInfo;
+          for (const line of lines) {
+            if (!line.trim()) continue;
 
-              // atualizar a mensagem da ia com info de busca
-              setMessages(prev =>
-                prev.map(msg =>
-                  msg.id === aiResponseId
-                    ? { ...msg, content: streamedContent, searchInfo: newSearchInfo, isLoading: false }
-                    : msg
-                )
-              );
-            }
-            else if (data.type === 'search_results') {
-              try {
-                // parsear urls dos resultados de busca
-                const urls = typeof data.urls === 'string' ? JSON.parse(data.urls) : data.urls;
+            try {
+              const data = JSON.parse(line);
 
-                // atualizar info de busca para adicionar 'reading' (não substituir 'searching')
-                const newSearchInfo = {
-                  stages: searchData ? [...searchData.stages, 'reading'] : ['reading'],
-                  query: searchData?.query || "",
-                  urls: urls
+              if (data.type === 'checkpoint') {
+                setCheckpointId(data.checkpoint_id);
+              } else if (data.type === 'content') {
+                streamedContent += data.content;
+                setMessages(prev =>
+                  prev.map(msg =>
+                    msg.id === aiResponseId
+                      ? { ...msg, content: streamedContent, isLoading: true }
+                      : msg
+                  )
+                );
+              } else if (data.type === 'search_start') {
+                const newSearchInfo: SearchInfo = {
+                  stages: ['searching'],
+                  query: data.query,
+                  urls: []
                 };
                 searchData = newSearchInfo;
-
-                // atualizar a mensagem da ia com info de busca
                 setMessages(prev =>
                   prev.map(msg =>
                     msg.id === aiResponseId
-                      ? { ...msg, content: streamedContent, searchInfo: newSearchInfo, isLoading: false }
+                      ? { ...msg, content: streamedContent, searchInfo: newSearchInfo, isLoading: true }
                       : msg
                   )
                 );
-              } catch (err) {
-                console.error("Error parsing search results:", err);
+              } else if (data.type === 'search_results') {
+                const urls = typeof data.urls === 'string' ? JSON.parse(data.urls) : data.urls;
+                const newSearchInfo: SearchInfo = {
+                  stages: searchData ? [...searchData.stages, 'reading'] : ['reading'],
+                  query: searchData?.query || "",
+                  urls,
+                };
+                searchData = newSearchInfo;
+                setMessages(prev =>
+                  prev.map(msg =>
+                    msg.id === aiResponseId
+                      ? { ...msg, content: streamedContent, searchInfo: newSearchInfo, isLoading: true }
+                      : msg
+                  )
+                );
+              } else if (data.type === 'search_error') {
+                const newSearchInfo: SearchInfo = {
+                  stages: searchData ? [...searchData.stages, 'error'] : ['error'],
+                  query: searchData?.query || "",
+                  error: data.error,
+                  urls: []
+                };
+                searchData = newSearchInfo;
+                setMessages(prev =>
+                  prev.map(msg =>
+                    msg.id === aiResponseId
+                      ? { ...msg, content: streamedContent, searchInfo: newSearchInfo, isLoading: true }
+                      : msg
+                  )
+                );
+              } else if (data.type === 'end') {
+                if (searchData) {
+                  const finalSearchInfo = {
+                    ...searchData,
+                    stages: [...searchData.stages, 'writing'],
+                  };
+                  setMessages(prev =>
+                    prev.map(msg =>
+                      msg.id === aiResponseId
+                        ? { ...msg, searchInfo: finalSearchInfo, isLoading: false }
+                        : msg
+                    )
+                  );
+                } else {
+                  setMessages(prev =>
+                    prev.map(msg =>
+                      msg.id === aiResponseId
+                        ? { ...msg, isLoading: false }
+                        : msg
+                    )
+                  );
+                }
               }
+            } catch (err) {
+              console.error("Error parsing stream JSON:", err, line);
             }
-            else if (data.type === 'search_error') {
-              // tratar erro de busca
-              const newSearchInfo = {
-                stages: searchData ? [...searchData.stages, 'error'] : ['error'],
-                query: searchData?.query || "",
-                error: data.error,
-                urls: []
-              };
-              searchData = newSearchInfo;
+          }
 
+          if (readerDone) {
+            break;
+          }
+        }
+
+        if (partial.trim()) {
+          try {
+            const data = JSON.parse(partial);
+            if (data.type === 'end') {
               setMessages(prev =>
                 prev.map(msg =>
                   msg.id === aiResponseId
-                    ? { ...msg, content: streamedContent, searchInfo: newSearchInfo, isLoading: false }
+                    ? { ...msg, isLoading: false }
                     : msg
                 )
               );
             }
-            else if (data.type === 'end') {
-              // quando o stream terminar, adicionar estágio 'writing' se tivermos info de busca
-              if (searchData) {
-                const finalSearchInfo = {
-                  ...searchData,
-                  stages: [...searchData.stages, 'writing']
-                };
-
-                setMessages(prev =>
-                  prev.map(msg =>
-                    msg.id === aiResponseId
-                      ? { ...msg, searchInfo: finalSearchInfo, isLoading: false }
-                      : msg
-                  )
-                );
-              }
-
-              eventSource.close();
-            }
-          } catch (error) {
-            console.error("Error parsing event data:", error, event.data);
+          } catch {
+            // ignorar fragmento final incompleto
           }
-        };
-
-        // tratar erros
-        eventSource.onerror = (error) => {
-          console.error("EventSource error:", error);
-          eventSource.close();
-
-          // só atualizar com erro se ainda não tivermos conteúdo
-          if (!streamedContent) {
-            setMessages(prev =>
-              prev.map(msg =>
-                msg.id === aiResponseId
-                  ? { ...msg, content: "Erro ao processar solicitação", isLoading: false }
-                  : msg
-              )
-            );
-          }
-        };
-
-        // escutar evento end
-        eventSource.addEventListener('end', () => {
-          eventSource.close();
-        });
+        }
       } catch (error) {
-        console.error("Error setting up EventSource:", error);
-        setMessages(prev => [
-          ...prev,
-          {
-            id: newMessageId + 1,
-            content: "Erro ao conectar-se ao servidor.",
-            isUser: false,
-            type: 'message',
-            isLoading: false
-          }
-        ]);
+        console.error("Erro ao processar requisição de chat:", error);
+        setMessages(prev =>
+          prev.map(msg =>
+            msg.id === aiResponseId
+              ? { ...msg, content: "Erro ao conectar-se ao servidor.", isLoading: false }
+              : msg
+          )
+        );
       }
     }
   };

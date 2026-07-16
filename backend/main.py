@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 from langchain_community.document_loaders import PyPDFLoader, TextLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
@@ -43,7 +44,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 @app.get("/")
 def home():
-    return {"message": "API rodando\!"}
+    return {"message": "API rodando!"}
 
 @app.post("/uploads")
 def upload_file(file: UploadFile = File(...)):
@@ -67,10 +68,15 @@ def upload_file(file: UploadFile = File(...)):
         index_name=PINECONE_INDEX_NAME
     )
 
-    return {"message": f"Arquivo {file.filename} enviado e vetorizado com sucesso\!"}
+    return {"message": f"Arquivo {file.filename} enviado e vetorizado com sucesso!"}
 
-@app.get("/chat_stream/{user_message}")
-def chat_stream(user_message: str, checkpoint_id: Optional[str] = None):
+class ChatRequest(BaseModel):
+    user_message: str
+    checkpoint_id: Optional[str] = None
+
+
+@app.post("/chat_stream")
+def chat_stream(request: ChatRequest):
     vectorstore = PineconeVectorStore.from_existing_index(
         index_name=PINECONE_INDEX_NAME,
         embedding=embeddings
@@ -84,19 +90,18 @@ def chat_stream(user_message: str, checkpoint_id: Optional[str] = None):
         retriever=retriever
     )
 
-    answer = qa_chain.run(user_message)
+    answer = qa_chain.run(request.user_message)
 
-    if checkpoint_id is None:
-        checkpoint_id = str(uuid.uuid4())
+    checkpoint_id = request.checkpoint_id or str(uuid.uuid4())
 
     def event_stream() -> Generator[str, None, None]:
-        yield f"data: {json.dumps({'type': 'checkpoint', 'checkpoint_id': checkpoint_id})}\n\n"
+        yield json.dumps({"type": "checkpoint", "checkpoint_id": checkpoint_id}) + "\n"
         for letter in answer:
             payload = {"type": "content", "content": letter}
-            yield f"data: {json.dumps(payload)}\n\n"
-        yield f"data: {json.dumps({'type': 'end'})}\n\n"
+            yield json.dumps(payload) + "\n"
+        yield json.dumps({"type": "end"}) + "\n"
 
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
+    return StreamingResponse(event_stream(), media_type="text/plain; charset=utf-8")
 
 @app.get("/retrieve")
 def retrieve_answer(query: str):
