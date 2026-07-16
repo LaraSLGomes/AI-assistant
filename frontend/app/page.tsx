@@ -9,6 +9,7 @@ interface SearchInfo {
   stages: string[];
   query: string;
   urls: string[];
+  error?: string;
 }
 
 interface Message {
@@ -30,6 +31,7 @@ const Home = () => {
     }
   ]);
   const [currentMessage, setCurrentMessage] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
   const [checkpointId, setCheckpointId] = useState(null);
 
   const handleSubmit = async (e) => {
