@@ -76,12 +76,6 @@ curl -X POST http://127.0.0.1:8000/chat_stream \
   -d '{"user_message":"Oi"}'
 ```
 
-## O que falta
-
-- mais tratamento de erros no frontend/backed
-- armazenamento dos metadados de upload
-- interface de upload de arquivos no frontend
-
 ---
 
 Este README reflete o estado atual do projeto e o fluxo de dados entre frontend, backend, Pinecone e Google Gemini.
