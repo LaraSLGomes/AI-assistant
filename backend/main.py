@@ -18,8 +18,13 @@ load_dotenv()
 
 app = FastAPI()
 
+# configuração atualizada do CORS para evitar bloqueios
 frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
-origins = [frontend_url]
+origins = [
+    frontend_url,
+    "http://localhost:3000",
+    "http://127.0.0.1:3000"
+]
 
 app.add_middleware(
     CORSMiddleware,
