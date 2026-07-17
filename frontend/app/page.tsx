@@ -91,14 +91,6 @@ const Home = () => {
 
   const currentSession = sessions.find(session => session.id === currentSessionId) ?? sessions[0];
 
-  const updateSessionMessages = (sessionId: string, messages: Message[]) => {
-    setSessions(prev =>
-      prev.map(session =>
-        session.id === sessionId ? { ...session, messages } : session
-      )
-    );
-  };
-
   const createNewChat = () => {
     const id = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `session-${Date.now()}`;
     const title = `Nova conversa ${sessions.length + 1}`;
@@ -128,14 +120,16 @@ const Home = () => {
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!currentMessage.trim() || !currentSession) return;
+    if (!currentMessage.trim()) return;
 
+    const sessionId = currentSessionId;
+    const sessionMessages = sessions.find(session => session.id === sessionId)?.messages ?? [];
     const userInput = currentMessage.trim();
-    const nextId = currentSession.messages.length > 0 ? Math.max(...currentSession.messages.map(msg => msg.id)) + 1 : 1;
+    const nextId = sessionMessages.length > 0 ? Math.max(...sessionMessages.map(msg => msg.id)) + 1 : 1;
     const aiResponseId = nextId + 1;
 
     const updatedMessages = [
-      ...currentSession.messages,
+      ...sessionMessages,
       { id: nextId, content: userInput, isUser: true, type: 'message' },
       {
         id: aiResponseId,
@@ -151,7 +145,11 @@ const Home = () => {
       }
     ];
 
-    updateSessionMessages(currentSession.id, updatedMessages);
+    setSessions(prev =>
+      prev.map(session =>
+        session.id === sessionId ? { ...session, messages: updatedMessages } : session
+      )
+    );
     setCurrentMessage('');
     setIsLoading(true);
 
@@ -198,10 +196,18 @@ const Home = () => {
               setCheckpointId(data.checkpoint_id);
             } else if (data.type === 'content') {
               streamedContent += data.content;
-              const updated = currentSession.messages.map(msg =>
-                msg.id === aiResponseId ? { ...msg, content: streamedContent, isLoading: true } : msg
+              setSessions(prev =>
+                prev.map(session =>
+                  session.id === sessionId
+                    ? {
+                        ...session,
+                        messages: session.messages.map(msg =>
+                          msg.id === aiResponseId ? { ...msg, content: streamedContent, isLoading: true } : msg
+                        )
+                      }
+                    : session
+                )
               );
-              updateSessionMessages(currentSession.id, updated);
             } else if (data.type === 'search_start') {
               const newSearchInfo: SearchInfo = {
                 stages: ['searching'],
@@ -209,12 +215,20 @@ const Home = () => {
                 urls: []
               };
               searchData = newSearchInfo;
-              const updated = currentSession.messages.map(msg =>
-                msg.id === aiResponseId
-                  ? { ...msg, content: streamedContent, searchInfo: newSearchInfo, isLoading: true }
-                  : msg
+              setSessions(prev =>
+                prev.map(session =>
+                  session.id === sessionId
+                    ? {
+                        ...session,
+                        messages: session.messages.map(msg =>
+                          msg.id === aiResponseId
+                            ? { ...msg, content: streamedContent, searchInfo: newSearchInfo, isLoading: true }
+                            : msg
+                        )
+                      }
+                    : session
+                )
               );
-              updateSessionMessages(currentSession.id, updated);
             } else if (data.type === 'search_results') {
               const urls = typeof data.urls === 'string' ? JSON.parse(data.urls) : data.urls;
               const newSearchInfo: SearchInfo = {
@@ -223,12 +237,20 @@ const Home = () => {
                 urls
               };
               searchData = newSearchInfo;
-              const updated = currentSession.messages.map(msg =>
-                msg.id === aiResponseId
-                  ? { ...msg, content: streamedContent, searchInfo: newSearchInfo, isLoading: true }
-                  : msg
+              setSessions(prev =>
+                prev.map(session =>
+                  session.id === sessionId
+                    ? {
+                        ...session,
+                        messages: session.messages.map(msg =>
+                          msg.id === aiResponseId
+                            ? { ...msg, content: streamedContent, searchInfo: newSearchInfo, isLoading: true }
+                            : msg
+                        )
+                      }
+                    : session
+                )
               );
-              updateSessionMessages(currentSession.id, updated);
             } else if (data.type === 'search_error') {
               const newSearchInfo: SearchInfo = {
                 stages: searchData ? [...searchData.stages, 'error'] : ['error'],
@@ -237,25 +259,41 @@ const Home = () => {
                 urls: []
               };
               searchData = newSearchInfo;
-              const updated = currentSession.messages.map(msg =>
-                msg.id === aiResponseId
-                  ? { ...msg, content: streamedContent, searchInfo: newSearchInfo, isLoading: true }
-                  : msg
+              setSessions(prev =>
+                prev.map(session =>
+                  session.id === sessionId
+                    ? {
+                        ...session,
+                        messages: session.messages.map(msg =>
+                          msg.id === aiResponseId
+                            ? { ...msg, content: streamedContent, searchInfo: newSearchInfo, isLoading: true }
+                            : msg
+                        )
+                      }
+                    : session
+                )
               );
-              updateSessionMessages(currentSession.id, updated);
             } else if (data.type === 'end') {
-              const finalMessages = currentSession.messages.map(msg =>
-                msg.id === aiResponseId
-                  ? {
-                      ...msg,
-                      isLoading: false,
-                      searchInfo: searchData
-                        ? { ...searchData, stages: [...searchData.stages, 'writing'] }
-                        : msg.searchInfo
-                    }
-                  : msg
+              setSessions(prev =>
+                prev.map(session =>
+                  session.id === sessionId
+                    ? {
+                        ...session,
+                        messages: session.messages.map(msg =>
+                          msg.id === aiResponseId
+                            ? {
+                                ...msg,
+                                isLoading: false,
+                                searchInfo: searchData
+                                  ? { ...searchData, stages: [...searchData.stages, 'writing'] }
+                                  : msg.searchInfo
+                              }
+                            : msg
+                        )
+                      }
+                    : session
+                )
               );
-              updateSessionMessages(currentSession.id, finalMessages);
             }
           } catch (err) {
             console.error('Error parsing stream JSON:', err, line);
@@ -269,10 +307,18 @@ const Home = () => {
         try {
           const data = JSON.parse(partial);
           if (data.type === 'end') {
-            const finalMessages = currentSession.messages.map(msg =>
-              msg.id === aiResponseId ? { ...msg, isLoading: false } : msg
+            setSessions(prev =>
+              prev.map(session =>
+                session.id === sessionId
+                  ? {
+                      ...session,
+                      messages: session.messages.map(msg =>
+                        msg.id === aiResponseId ? { ...msg, isLoading: false } : msg
+                      )
+                    }
+                  : session
+              )
             );
-            updateSessionMessages(currentSession.id, finalMessages);
           }
         } catch {
           // ignore incomplete trailing chunk
@@ -280,12 +326,20 @@ const Home = () => {
       }
     } catch (error) {
       console.error('Erro ao processar requisição de chat:', error);
-      const finalMessages = currentSession.messages.map(msg =>
-        msg.id === aiResponseId
-          ? { ...msg, content: 'Erro ao conectar-se ao servidor.', isLoading: false }
-          : msg
+      setSessions(prev =>
+        prev.map(session =>
+          session.id === sessionId
+            ? {
+                ...session,
+                messages: session.messages.map(msg =>
+                  msg.id === aiResponseId
+                    ? { ...msg, content: 'Erro ao conectar-se ao servidor.', isLoading: false }
+                    : msg
+                )
+              }
+            : session
+        )
       );
-      updateSessionMessages(currentSession.id, finalMessages);
     } finally {
       setIsLoading(false);
     }
