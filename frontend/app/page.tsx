@@ -21,26 +21,59 @@ interface Message {
   searchInfo?: SearchInfo;
 }
 
-const defaultMessages: Message[] = [
-  {
-    id: 1,
-    content: 'Olá! Como posso ajudar?',
-    isUser: false,
-    type: 'message'
+interface ChatSession {
+  id: string;
+  title: string;
+  messages: Message[];
+}
+
+const LOCAL_STORAGE_KEY = 'chat_app_state';
+
+const initialSession: ChatSession = {
+  id: 'session-1',
+  title: 'Nova conversa',
+  messages: [
+    {
+      id: 1,
+      content: 'Olá! Como posso ajudar?',
+      isUser: false,
+      type: 'message'
+    }
+  ]
+};
+
+const loadInitialState = () => {
+  if (typeof window === 'undefined') {
+    return {
+      sessions: [initialSession],
+      currentSessionId: initialSession.id
+    };
   }
-];
+
+  try {
+    const stored = window.localStorage.getItem(LOCAL_STORAGE_KEY);
+    if (stored) {
+      const parsed = JSON.parse(stored) as { sessions: ChatSession[]; currentSessionId: string };
+      if (parsed?.sessions?.length) {
+        return {
+          sessions: parsed.sessions,
+          currentSessionId: parsed.currentSessionId || parsed.sessions[0].id
+        };
+      }
+    }
+  } catch {
+    // ignore parse errors
+  }
+
+  return {
+    sessions: [initialSession],
+    currentSessionId: initialSession.id
+  };
+};
 
 const Home = () => {
-  const [messages, setMessages] = useState<Message[]>(() => {
-    if (typeof window === 'undefined') return defaultMessages;
-
-    try {
-      const stored = window.localStorage.getItem('chat_messages');
-      return stored ? JSON.parse(stored) : defaultMessages;
-    } catch {
-      return defaultMessages;
-    }
-  });
+  const [sessions, setSessions] = useState<ChatSession[]>(() => loadInitialState().sessions);
+  const [currentSessionId, setCurrentSessionId] = useState<string>(() => loadInitialState().currentSessionId);
   const [currentMessage, setCurrentMessage] = useState<string>('');
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -50,14 +83,44 @@ const Home = () => {
 
   useEffect(() => {
     try {
-      window.localStorage.setItem('chat_messages', JSON.stringify(messages));
+      window.localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify({ sessions, currentSessionId }));
     } catch {
       // ignore storage errors
     }
-  }, [messages]);
+  }, [sessions, currentSessionId]);
+
+  const currentSession = sessions.find(session => session.id === currentSessionId) ?? sessions[0];
+
+  const updateSessionMessages = (sessionId: string, messages: Message[]) => {
+    setSessions(prev =>
+      prev.map(session =>
+        session.id === sessionId ? { ...session, messages } : session
+      )
+    );
+  };
+
+  const createNewChat = () => {
+    const id = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `session-${Date.now()}`;
+    const title = `Nova conversa ${sessions.length + 1}`;
+    const newSession: ChatSession = {
+      id,
+      title,
+      messages: []
+    };
+
+    setSessions(prev => [newSession, ...prev]);
+    setCurrentSessionId(id);
+    setCurrentMessage('');
+    setCheckpointId(null);
+  };
+
+  const switchSession = (sessionId: string) => {
+    setCurrentSessionId(sessionId);
+    setCheckpointId(null);
+  };
 
   const buildChatHistory = () => {
-    return messages.map(msg => ({
+    return currentSession.messages.map(msg => ({
       role: msg.isUser ? 'user' : 'assistant',
       content: msg.content
     }));
@@ -65,15 +128,15 @@ const Home = () => {
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!currentMessage.trim()) return;
+    if (!currentMessage.trim() || !currentSession) return;
 
     const userInput = currentMessage.trim();
-    const newMessageId = messages.length > 0 ? Math.max(...messages.map(msg => msg.id)) + 1 : 1;
-    const aiResponseId = newMessageId + 1;
+    const nextId = currentSession.messages.length > 0 ? Math.max(...currentSession.messages.map(msg => msg.id)) + 1 : 1;
+    const aiResponseId = nextId + 1;
 
-    setMessages(prev => [
-      ...prev,
-      { id: newMessageId, content: userInput, isUser: true, type: 'message' },
+    const updatedMessages = [
+      ...currentSession.messages,
+      { id: nextId, content: userInput, isUser: true, type: 'message' },
       {
         id: aiResponseId,
         content: '',
@@ -86,15 +149,14 @@ const Home = () => {
           urls: []
         }
       }
-    ]);
+    ];
 
+    updateSessionMessages(currentSession.id, updatedMessages);
     setCurrentMessage('');
     setIsLoading(true);
 
     try {
       const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
-      const chatHistory = [...buildChatHistory(), { role: 'user', content: userInput }];
-
       const response = await fetch(`${apiBaseUrl}/chat_stream`, {
         method: 'POST',
         headers: {
@@ -102,7 +164,7 @@ const Home = () => {
         },
         body: JSON.stringify({
           user_message: userInput,
-          chat_history: chatHistory,
+          chat_history: [...buildChatHistory(), { role: 'user', content: userInput }],
           checkpoint_id: checkpointId
         })
       });
@@ -136,13 +198,10 @@ const Home = () => {
               setCheckpointId(data.checkpoint_id);
             } else if (data.type === 'content') {
               streamedContent += data.content;
-              setMessages(prev =>
-                prev.map(msg =>
-                  msg.id === aiResponseId
-                    ? { ...msg, content: streamedContent, isLoading: true }
-                    : msg
-                )
+              const updated = currentSession.messages.map(msg =>
+                msg.id === aiResponseId ? { ...msg, content: streamedContent, isLoading: true } : msg
               );
+              updateSessionMessages(currentSession.id, updated);
             } else if (data.type === 'search_start') {
               const newSearchInfo: SearchInfo = {
                 stages: ['searching'],
@@ -150,13 +209,12 @@ const Home = () => {
                 urls: []
               };
               searchData = newSearchInfo;
-              setMessages(prev =>
-                prev.map(msg =>
-                  msg.id === aiResponseId
-                    ? { ...msg, content: streamedContent, searchInfo: newSearchInfo, isLoading: true }
-                    : msg
-                )
+              const updated = currentSession.messages.map(msg =>
+                msg.id === aiResponseId
+                  ? { ...msg, content: streamedContent, searchInfo: newSearchInfo, isLoading: true }
+                  : msg
               );
+              updateSessionMessages(currentSession.id, updated);
             } else if (data.type === 'search_results') {
               const urls = typeof data.urls === 'string' ? JSON.parse(data.urls) : data.urls;
               const newSearchInfo: SearchInfo = {
@@ -165,13 +223,12 @@ const Home = () => {
                 urls
               };
               searchData = newSearchInfo;
-              setMessages(prev =>
-                prev.map(msg =>
-                  msg.id === aiResponseId
-                    ? { ...msg, content: streamedContent, searchInfo: newSearchInfo, isLoading: true }
-                    : msg
-                )
+              const updated = currentSession.messages.map(msg =>
+                msg.id === aiResponseId
+                  ? { ...msg, content: streamedContent, searchInfo: newSearchInfo, isLoading: true }
+                  : msg
               );
+              updateSessionMessages(currentSession.id, updated);
             } else if (data.type === 'search_error') {
               const newSearchInfo: SearchInfo = {
                 stages: searchData ? [...searchData.stages, 'error'] : ['error'],
@@ -180,35 +237,25 @@ const Home = () => {
                 urls: []
               };
               searchData = newSearchInfo;
-              setMessages(prev =>
-                prev.map(msg =>
-                  msg.id === aiResponseId
-                    ? { ...msg, content: streamedContent, searchInfo: newSearchInfo, isLoading: true }
-                    : msg
-                )
+              const updated = currentSession.messages.map(msg =>
+                msg.id === aiResponseId
+                  ? { ...msg, content: streamedContent, searchInfo: newSearchInfo, isLoading: true }
+                  : msg
               );
+              updateSessionMessages(currentSession.id, updated);
             } else if (data.type === 'end') {
-              if (searchData) {
-                const finalSearchInfo = {
-                  ...searchData,
-                  stages: [...searchData.stages, 'writing']
-                };
-                setMessages(prev =>
-                  prev.map(msg =>
-                    msg.id === aiResponseId
-                      ? { ...msg, searchInfo: finalSearchInfo, isLoading: false }
-                      : msg
-                  )
-                );
-              } else {
-                setMessages(prev =>
-                  prev.map(msg =>
-                    msg.id === aiResponseId
-                      ? { ...msg, isLoading: false }
-                      : msg
-                  )
-                );
-              }
+              const finalMessages = currentSession.messages.map(msg =>
+                msg.id === aiResponseId
+                  ? {
+                      ...msg,
+                      isLoading: false,
+                      searchInfo: searchData
+                        ? { ...searchData, stages: [...searchData.stages, 'writing'] }
+                        : msg.searchInfo
+                    }
+                  : msg
+              );
+              updateSessionMessages(currentSession.id, finalMessages);
             }
           } catch (err) {
             console.error('Error parsing stream JSON:', err, line);
@@ -222,27 +269,23 @@ const Home = () => {
         try {
           const data = JSON.parse(partial);
           if (data.type === 'end') {
-            setMessages(prev =>
-              prev.map(msg =>
-                msg.id === aiResponseId
-                  ? { ...msg, isLoading: false }
-                  : msg
-              )
+            const finalMessages = currentSession.messages.map(msg =>
+              msg.id === aiResponseId ? { ...msg, isLoading: false } : msg
             );
+            updateSessionMessages(currentSession.id, finalMessages);
           }
         } catch {
-          // ignorar fragmento final incompleto
+          // ignore incomplete trailing chunk
         }
       }
     } catch (error) {
       console.error('Erro ao processar requisição de chat:', error);
-      setMessages(prev =>
-        prev.map(msg =>
-          msg.id === aiResponseId
-            ? { ...msg, content: 'Erro ao conectar-se ao servidor.', isLoading: false }
-            : msg
-        )
+      const finalMessages = currentSession.messages.map(msg =>
+        msg.id === aiResponseId
+          ? { ...msg, content: 'Erro ao conectar-se ao servidor.', isLoading: false }
+          : msg
       );
+      updateSessionMessages(currentSession.id, finalMessages);
     } finally {
       setIsLoading(false);
     }
@@ -287,34 +330,65 @@ const Home = () => {
 
   return (
     <div className="flex justify-center bg-gray-100 min-h-screen py-8 px-4">
-      {/* contêiner principal com sombra refinada e borda */}
-      <div className="w-[70%] bg-white flex flex-col rounded-xl shadow-lg border border-gray-100 overflow-hidden h-[90vh]">
-        <Header />
-        <div className="px-6 py-4 border-b border-gray-200">
-          <form onSubmit={handleUploadSubmit} className="flex flex-col gap-3 sm:flex-row sm:items-center">
-            <input
-              type="file"
-              accept="application/pdf"
-              onChange={handleFileChange}
-              className="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm"
-            />
+      <div className="flex w-full max-w-[1400px] gap-4">
+        <aside className="w-72 bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-4 border-b border-gray-200">
+            <h2 className="text-sm font-semibold text-gray-700">Sessões</h2>
             <button
-              type="submit"
-              disabled={!selectedFile || uploadLoading}
-              className="rounded-md bg-blue-600 px-4 py-2 text-white disabled:cursor-not-allowed disabled:bg-blue-300"
+              type="button"
+              onClick={createNewChat}
+              className="rounded-md bg-blue-600 px-3 py-1 text-white text-xs font-medium hover:bg-blue-700 transition"
             >
-              {uploadLoading ? 'Enviando documento...' : 'Enviar PDF'}
+              Novo Chat
             </button>
-          </form>
-          {uploadStatus && <p className="mt-2 text-sm text-gray-600">{uploadStatus}</p>}
+          </div>
+          <div className="max-h-[calc(100vh-96px)] overflow-auto">
+            {sessions.map(session => {
+              const isActive = session.id === currentSessionId;
+              return (
+                <button
+                  key={session.id}
+                  type="button"
+                  onClick={() => switchSession(session.id)}
+                  className={`w-full text-left px-4 py-3 border-b border-gray-100 transition ${isActive ? 'bg-blue-50 text-blue-700' : 'hover:bg-gray-50'}`}
+                >
+                  <div className="text-sm font-medium truncate">{session.title}</div>
+                  <div className="text-xs text-gray-500 truncate">{session.messages.length} mensagem(s)</div>
+                </button>
+              );
+            })}
+          </div>
+        </aside>
+        <div className="flex-1 bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden flex flex-col">
+          <Header />
+          <div className="px-6 py-4 border-b border-gray-200">
+            <form onSubmit={handleUploadSubmit} className="flex flex-col gap-3 sm:flex-row sm:items-center">
+              <input
+                type="file"
+                accept="application/pdf"
+                onChange={handleFileChange}
+                className="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm"
+              />
+              <button
+                type="submit"
+                disabled={!selectedFile || uploadLoading}
+                className="rounded-md bg-blue-600 px-4 py-2 text-white disabled:cursor-not-allowed disabled:bg-blue-300"
+              >
+                {uploadLoading ? 'Enviando documento...' : 'Enviar PDF'}
+              </button>
+            </form>
+            {uploadStatus && <p className="mt-2 text-sm text-gray-600">{uploadStatus}</p>}
+          </div>
+          <div className="flex-1 overflow-hidden">
+            <MessageArea messages={currentSession?.messages ?? []} />
+          </div>
+          <InputBar
+            currentMessage={currentMessage}
+            setCurrentMessage={setCurrentMessage}
+            onSubmit={handleSubmit}
+            disabled={isLoading}
+          />
         </div>
-        <MessageArea messages={messages} />
-        <InputBar
-          currentMessage={currentMessage}
-          setCurrentMessage={setCurrentMessage}
-          onSubmit={handleSubmit}
-          disabled={isLoading}
-        />
       </div>
     </div>
   );
