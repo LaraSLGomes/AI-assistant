@@ -72,7 +72,7 @@ const loadInitialState = () => {
 };
 
 const Home = () => {
-  // Correção do erro de Hydration do Next.js
+  // correção do erro de Hydration do Next.js
   const [isMounted, setIsMounted] = useState(false);
   
   const [sessions, setSessions] = useState<ChatSession[]>(() => loadInitialState().sessions);
@@ -153,7 +153,8 @@ const Home = () => {
   const handleFileUpload = async (file: File) => {
     setUploadLoading(true);
     try {
-      const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
+      // ajuste direto para o IP local evitando conflito 
+      const apiBaseUrl = 'http://127.0.0.1:8000';
       const formData = new FormData();
       formData.append('file', file);
 
@@ -208,7 +209,8 @@ const Home = () => {
     const chatHistory = [...sessionMessages.map(msg => ({ role: msg.isUser ? 'user' : 'assistant', content: msg.content })), { role: 'user', content: userInput }];
 
     try {
-      const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
+      // Ajuste direto para o IP local evitando conflito com IPv6 do localhost no Mac
+      const apiBaseUrl = 'http://127.0.0.1:8000';
       const response = await fetch(`${apiBaseUrl}/chat_stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -328,7 +330,7 @@ const Home = () => {
         if (done) break;
       }
 
-      // Restauração do bloco de processamento final que evita o infinito "carregando"
+      // restauração do bloco de processamento final que evita o infinito "carregando"
       if (partial.trim()) {
         try {
           const data = JSON.parse(partial);
@@ -356,7 +358,7 @@ const Home = () => {
     }
   };
 
-  // Previne renderização antes do Hydration do Next.js
+  // previne renderização antes do Hydration do Next.js
   if (!isMounted) return null;
 
   return (
