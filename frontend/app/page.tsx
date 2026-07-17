@@ -111,13 +111,6 @@ const Home = () => {
     setCheckpointId(null);
   };
 
-  const buildChatHistory = () => {
-    return currentSession.messages.map(msg => ({
-      role: msg.isUser ? 'user' : 'assistant',
-      content: msg.content
-    }));
-  };
-
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!currentMessage.trim()) return;
@@ -153,6 +146,8 @@ const Home = () => {
     setCurrentMessage('');
     setIsLoading(true);
 
+    const chatHistory = [...sessionMessages.map(msg => ({ role: msg.isUser ? 'user' : 'assistant', content: msg.content })), { role: 'user', content: userInput }];
+
     try {
       const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
       const response = await fetch(`${apiBaseUrl}/chat_stream`, {
@@ -162,7 +157,7 @@ const Home = () => {
         },
         body: JSON.stringify({
           user_message: userInput,
-          chat_history: [...buildChatHistory(), { role: 'user', content: userInput }],
+          chat_history: chatHistory,
           checkpoint_id: checkpointId
         })
       });
