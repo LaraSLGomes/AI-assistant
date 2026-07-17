@@ -91,7 +91,7 @@ def chat_stream(request: ChatRequest):
 
     qa_chain = RetrievalQA.from_chain_type(
         llm=ChatGoogleGenerativeAI(
-            model="gemini-1.5-flash",
+            model="gemini-3.5-flash",
             google_api_key=GOOGLE_API_KEY,
         ),
         chain_type="stuff",
@@ -122,7 +122,7 @@ def retrieve_answer(query: str):
 
     qa_chain = RetrievalQA.from_chain_type(
         llm=ChatGoogleGenerativeAI(
-            model="gemini-1.5-flash",
+            model="gemini-3.5-flash",
             google_api_key=GOOGLE_API_KEY,
         ),
         chain_type="stuff",
