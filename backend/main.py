@@ -1,7 +1,7 @@
 import json
 import os
 import uuid
-from typing import Generator, Optional
+from typing import Generator, List, Optional
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, UploadFile
@@ -75,9 +75,30 @@ def upload_file(file: UploadFile = File(...)):
 
     return {"message": f"Arquivo {file.filename} enviado e vetorizado com sucesso!"}
 
+class ChatHistoryItem(BaseModel):
+    role: str
+    content: str
+
+
 class ChatRequest(BaseModel):
     user_message: str
+    chat_history: List[ChatHistoryItem] = []
     checkpoint_id: Optional[str] = None
+
+
+def build_chat_prompt(user_message: str, history: List[ChatHistoryItem]) -> str:
+    if history:
+        history_lines = [f"{item.role}: {item.content}" for item in history]
+        history_text = "\n".join(history_lines)
+
+        return (
+            "Considere o histórico de conversa abaixo para contexto:\n"
+            f"{history_text}\n\n"
+            f"Pergunta atual: {user_message}\n\n"
+            "Responda usando os documentos recuperados e mantenha o contexto da conversa."
+        )
+
+    return user_message
 
 
 @app.post("/chat_stream")
@@ -98,7 +119,8 @@ def chat_stream(request: ChatRequest):
         retriever=retriever
     )
 
-    answer = qa_chain.run(request.user_message)
+    prompt_input = build_chat_prompt(request.user_message, request.chat_history)
+    answer = qa_chain.run(prompt_input)
 
     checkpoint_id = request.checkpoint_id or str(uuid.uuid4())
 
