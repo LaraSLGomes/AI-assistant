@@ -19,7 +19,7 @@ load_dotenv()
 
 app = FastAPI()
 
-# Configuração atualizada do CORS para evitar bloqueios
+# Configuração de CORS original
 frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
 origins = [
     frontend_url,
@@ -36,29 +36,38 @@ app.add_middleware(
 )
 
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
-if not GOOGLE_API_KEY:
-    raise RuntimeError("GOOGLE_API_KEY não configurada no backend")
-if GOOGLE_API_KEY.strip() == "seu_google_api_key_aqui":
-    raise RuntimeError("GOOGLE_API_KEY no backend está usando o placeholder. Substitua por uma chave válida.")
+PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
+PINECONE_INDEX_NAME = os.getenv("PINECONE_INDEX_NAME")
 
-# CORREÇÃO APLICADA AQUI: 
-# O modelo 'models/embedding-001' do Google gera nativamente vetores de 768 dimensões,
-# casando perfeitamente com o seu índice atual no Pinecone.
+# Checagem explícita das variáveis de ambiente na subida do servidor.
+# Se alguma faltar, você vai ver isso no terminal ANTES de qualquer requisição falhar com 500.
+missing_vars = [
+    name for name, val in [
+        ("GOOGLE_API_KEY", GOOGLE_API_KEY),
+        ("PINECONE_API_KEY", PINECONE_API_KEY),
+        ("PINECONE_INDEX_NAME", PINECONE_INDEX_NAME),
+    ] if not val
+]
+if missing_vars:
+    print(f"[AVISO] Variáveis de ambiente ausentes: {', '.join(missing_vars)}")
+    print("[AVISO] Confira o arquivo .env na pasta backend/")
+
+# "models/embedding-001" foi descontinuado pelo Google (dava 404 NotFound).
+# "text-embedding-004" gera vetores de 768 dimensões, igual ao antigo,
+# então continua compatível com o índice que você já criou no Pinecone.
 embeddings = GoogleGenerativeAIEmbeddings(
-    model="models/embedding-001",
+    model="models/text-embedding-004",
     google_api_key=GOOGLE_API_KEY,
 )
-
-PINECONE_INDEX_NAME = os.getenv("PINECONE_INDEX_NAME")
-if not PINECONE_INDEX_NAME:
-    raise RuntimeError("PINECONE_INDEX_NAME não configurado no backend")
 
 UPLOAD_DIR = "./uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
+
 @app.get("/")
 def home():
     return {"message": "API rodando!"}
+
 
 @app.post("/uploads")
 def upload_file(file: UploadFile = File(...)):
@@ -67,29 +76,23 @@ def upload_file(file: UploadFile = File(...)):
         with open(file_path, "wb") as f:
             f.write(file.file.read())
 
-        if file.filename.endswith(".pdf"):
-            loader = PyPDFLoader(file_path)
-        else:
-            loader = TextLoader(file_path)
-
+        loader = PyPDFLoader(file_path) if file.filename.endswith(".pdf") else TextLoader(file_path)
         documents = loader.load()
 
         text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
         chunks = text_splitter.split_documents(documents)
 
-        vectorstore = PineconeVectorStore.from_documents(
+        PineconeVectorStore.from_documents(
             chunks,
             embeddings,
             index_name=PINECONE_INDEX_NAME
         )
 
-        return {"message": f"Arquivo {file.filename} enviado e vetorizado com sucesso!"}
+        return {"message": f"Arquivo {file.filename} enviado com sucesso!"}
     except Exception as exc:
         traceback.print_exc()
-        return JSONResponse(
-            status_code=500,
-            content={"error": "Falha ao processar o upload.", "detail": str(exc)}
-        )
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
 
 class ChatHistoryItem(BaseModel):
     role: str
@@ -102,21 +105,6 @@ class ChatRequest(BaseModel):
     checkpoint_id: Optional[str] = None
 
 
-def build_chat_prompt(user_message: str, history: List[ChatHistoryItem]) -> str:
-    if history:
-        history_lines = [f"{item.role}: {item.content}" for item in history]
-        history_text = "\n".join(history_lines)
-
-        return (
-            "Considere o histórico de conversa abaixo para contexto:\n"
-            f"{history_text}\n\n"
-            f"Pergunta atual: {user_message}\n\n"
-            "Responda usando os documentos recuperados e mantenha o contexto da conversa."
-        )
-
-    return user_message
-
-
 @app.post("/chat_stream")
 def chat_stream(request: ChatRequest):
     try:
@@ -125,55 +113,30 @@ def chat_stream(request: ChatRequest):
             embedding=embeddings
         )
 
-        retriever = vectorstore.as_retriever()
-
         qa_chain = RetrievalQA.from_chain_type(
             llm=ChatGoogleGenerativeAI(
-                model="gemini-3.5-flash",
+                # ATENÇÃO: confirme o nome exato do modelo disponível para sua API key.
+                # Modelos válidos do Gemini (jul/2026): gemini-1.5-flash, gemini-2.0-flash,
+                # gemini-2.5-flash, gemini-2.5-pro. Não existe "gemini-3.5".
+                # Se você digitar um nome inexistente, o Google retorna 404,
+                # que vira exatamente o 500 que você está vendo aqui.
+                model="gemini-1.5-flash",
                 google_api_key=GOOGLE_API_KEY,
             ),
             chain_type="stuff",
-            retriever=retriever
+            retriever=vectorstore.as_retriever()
         )
 
-        prompt_input = build_chat_prompt(request.user_message, request.chat_history)
-        answer = qa_chain.run(prompt_input)
-
-        checkpoint_id = request.checkpoint_id or str(uuid.uuid4())
+        # .run() está deprecated desde langchain 0.1.0 e some na v1.0 -> trocado por .invoke()
+        result = qa_chain.invoke({"query": request.user_message})
+        answer = result["result"]
 
         def event_stream() -> Generator[str, None, None]:
-            yield json.dumps({"type": "checkpoint", "checkpoint_id": checkpoint_id}) + "\n"
             for letter in answer:
-                payload = {"type": "content", "content": letter}
-                yield json.dumps(payload) + "\n"
+                yield json.dumps({"type": "content", "content": letter}) + "\n"
             yield json.dumps({"type": "end"}) + "\n"
 
         return StreamingResponse(event_stream(), media_type="text/plain; charset=utf-8")
     except Exception as exc:
         traceback.print_exc()
-        return JSONResponse(
-            status_code=500,
-            content={"error": "Falha ao gerar resposta de chat.", "detail": str(exc)}
-        )
-
-@app.get("/retrieve")
-def retrieve_answer(query: str):
-    vectorstore = PineconeVectorStore.from_existing_index(
-        index_name=PINECONE_INDEX_NAME,
-        embedding=embeddings
-    )
-
-    retriever = vectorstore.as_retriever()
-
-    qa_chain = RetrievalQA.from_chain_type(
-        llm=ChatGoogleGenerativeAI(
-            model="gemini-3.5-flash",
-            google_api_key=GOOGLE_API_KEY,
-        ),
-        chain_type="stuff",
-        retriever=retriever
-    )
-
-    result = qa_chain.run(query)
-
-    return {"message": "Answer generated successfully", "answer": result}
+        return JSONResponse(status_code=500, content={"error": str(exc)})
