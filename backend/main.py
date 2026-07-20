@@ -39,8 +39,6 @@ GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 PINECONE_INDEX_NAME = os.getenv("PINECONE_INDEX_NAME")
 
-# Checagem explícita das variáveis de ambiente na subida do servidor.
-# Se alguma faltar, você vai ver isso no terminal ANTES de qualquer requisição falhar com 500.
 missing_vars = [
     name for name, val in [
         ("GOOGLE_API_KEY", GOOGLE_API_KEY),
@@ -52,11 +50,8 @@ if missing_vars:
     print(f"[AVISO] Variáveis de ambiente ausentes: {', '.join(missing_vars)}")
     print("[AVISO] Confira o arquivo .env na pasta backend/")
 
-# "models/embedding-001" foi descontinuado pelo Google (dava 404 NotFound).
-# "text-embedding-004" gera vetores de 768 dimensões, igual ao antigo,
-# então continua compatível com o índice que você já criou no Pinecone.
 embeddings = GoogleGenerativeAIEmbeddings(
-    model="models/text-embedding-004",
+    model="models/gemini-embedding-001",
     google_api_key=GOOGLE_API_KEY,
 )
 
@@ -115,12 +110,7 @@ def chat_stream(request: ChatRequest):
 
         qa_chain = RetrievalQA.from_chain_type(
             llm=ChatGoogleGenerativeAI(
-                # ATENÇÃO: confirme o nome exato do modelo disponível para sua API key.
-                # Modelos válidos do Gemini (jul/2026): gemini-1.5-flash, gemini-2.0-flash,
-                # gemini-2.5-flash, gemini-2.5-pro. Não existe "gemini-3.5".
-                # Se você digitar um nome inexistente, o Google retorna 404,
-                # que vira exatamente o 500 que você está vendo aqui.
-                model="gemini-1.5-flash",
+                model="gemini-3.5-flash",
                 google_api_key=GOOGLE_API_KEY,
             ),
             chain_type="stuff",
