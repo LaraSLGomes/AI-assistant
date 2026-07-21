@@ -19,20 +19,21 @@ load_dotenv()
 
 app = FastAPI()
 
-# Configuração de CORS original
-frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
+url_front = os.getenv("FRONTEND_URL", "https://olivia-ai-assistant.vercel.app").strip().rstrip("/")
+
 origins = [
-    frontend_url,
+    url_front,
     "http://localhost:3000",
     "http://127.0.0.1:3000"
 ]
 
+# configuração de CORS atualizada e cega a métodos restritos
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
-    allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["*"],
     allow_credentials=True,
+    allow_methods=["*"], # libera OPTIONS, GET, POST de uma vez só
+    allow_headers=["*"], # libera cabeçalhos customizados do navegador
 )
 
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
