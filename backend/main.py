@@ -30,10 +30,10 @@ origins = [
 # configuração de CORS atualizada e cega a métodos restritos
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
-    allow_credentials=True,
-    allow_methods=["*"], # libera OPTIONS, GET, POST de uma vez só
-    allow_headers=["*"], # libera cabeçalhos customizados do navegador
+    allow_origins=["*"], # libera o acesso para qualquer frontend (Vercel, localhost, etc.)
+    allow_credentials=False, # precisa obrigatoriamente ser False quando usamos o "*"
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
