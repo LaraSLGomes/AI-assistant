@@ -21,12 +21,6 @@ app = FastAPI()
 
 url_front = os.getenv("FRONTEND_URL", "https://olivia-ai-assistant.vercel.app").strip().rstrip("/")
 
-origins = [
-    url_front,
-    "http://localhost:3000",
-    "http://127.0.0.1:3000"
-]
-
 # configuração de CORS atualizada e cega a métodos restritos
 app.add_middleware(
     CORSMiddleware,
@@ -101,6 +95,30 @@ class ChatRequest(BaseModel):
     checkpoint_id: Optional[str] = None
 
 
+def build_chat_prompt(user_message: str, history: List[ChatHistoryItem]) -> str:
+    # transforma o histórico em texto
+    history_text = ""
+    if history:
+        history_lines = [f"{item.role}: {item.content}" for item in history]
+        history_text = "\n".join(history_lines)
+
+    return (
+        "Você é a Olivia, uma inteligência artificial avançada atuando como a assistente pessoal exclusiva da sua desenvolvedora criadora. "
+        "Sua personalidade é sagaz, altamente eficiente, prestativa e com um leve toque de humor sofisticado (semelhante ao J.A.R.V.I.S. do Homem de Ferro). "
+        "Sua chefe é uma estudante de Ciência da Computação e estágiaria de Desenvolvimento de Software, com forte interesse em arquitetura de software, automação e gestão estratégica de TI.\n\n"
+        "REGRAS DE COMPORTAMENTO:\n"
+        "1. Postura de Assistente: Trate a usuária com parceria e respeito. Seja proativa. Se ela pedir ajuda com código, arquitetura ou planejamento, responda no nível técnico adequado para uma desenvolvedora de software.\n"
+        "2. Versatilidade: Você é uma assistente completa, não apenas uma leitora de textos. Converse livremente, dê opiniões técnicas, ajude com organização pessoal ou estudos de idiomas sempre que solicitada.\n"
+        "3. Lida com Documentos: Quando a usuária enviar ou perguntar sobre um documento específico do banco de dados, sintetize as informações com clareza, extraindo insights úteis em vez de apenas copiar o texto.\n"
+        "4. Precisão Elegante: Se você não souber de algo ou se a informação não estiver no contexto/documentos, admita com elegância e ofereça o seu melhor raciocínio lógico como alternativa.\n\n"
+        "HISTÓRICO DA CONVERSA:\n"
+        f"{history_text}\n\n"
+        "COMANDO DO USUÁRIO:\n"
+        f"{user_message}\n\n"
+        "Responda ao comando incorporando perfeitamente a sua identidade como Olivia, seguindo as diretrizes acima."
+    )
+
+
 @app.post("/chat_stream")
 def chat_stream(request: ChatRequest):
     try:
@@ -118,8 +136,11 @@ def chat_stream(request: ChatRequest):
             retriever=vectorstore.as_retriever()
         )
 
-        # .run() está deprecated desde langchain 0.1.0 e some na v1.0 -> trocado por .invoke()
-        result = qa_chain.invoke({"query": request.user_message})
+        # chama a função para construir o prompt com regras e histórico
+        final_query = build_chat_prompt(request.user_message, request.chat_history)
+
+        # envia o prompt formatado em vez de apenas a mensagem solta
+        result = qa_chain.invoke({"query": final_query})
         answer = result["result"]
 
         def event_stream() -> Generator[str, None, None]:
