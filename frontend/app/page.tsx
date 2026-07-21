@@ -207,7 +207,7 @@ const Home = () => {
     const chatHistory = [...sessionMessages.map(msg => ({ role: msg.isUser ? 'user' : 'assistant', content: msg.content })), { role: 'user', content: userInput }];
 
     try {
-      const apiBaseUrl = 'http://127.0.0.1:8000';
+      const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
       const response = await fetch(`${apiBaseUrl}/chat_stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
